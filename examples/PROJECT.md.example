@@ -1,0 +1,382 @@
+# .claude/PROJECT.md — Example
+
+> This file is created by /init and lives in each project's .claude/ directory.
+> It is gitignored — never committed to the project repo.
+
+## Project Configuration
+
+### Stack
+Mixed (Next.js + C#/Blazor)
+
+### Project Type
+New feature on existing codebase
+
+### Security Sensitivity
+Customer-facing
+<!-- Options: Internal tool / Customer-facing / Financial or sensitive data -->
+
+### Jira Board
+- URL: https://your-team.atlassian.net
+- Project: DEV
+- Board ID: 309
+
+### Board Mappings
+- Features: DEV board 309
+- Bugs: DEV board 309
+- Incidents: DEV board 309
+- Refactors: DEV board 309
+- Security: DEV board 309
+<!-- These are filled the first time each command type is used -->
+
+### Jira Phase Map
+<!--
+The phase map tells the toolbox which board column corresponds to each
+universal workflow PHASE. Phases are toolbox-internal (Discovery, In Progress,
+Code Review, etc.) — column names are per-team Jira UI choices.
+
+This map is the CONTRACT between phases (toolbox concept) and columns (board
+reality). It is verified at the start of every /flow run. If a mapped column
+no longer exists on the live board, /flow pauses and asks the user to remap
+before any phase comments fire.
+
+Semantics:
+- Quoted column name → ticket transitions to that column when the phase runs
+- null → no column for this phase; comment-only, no transition (the comment
+  body gets a prefix like "(in <current_column> — board has no <phase> column)")
+- Same column reused across keys → ticket stays put; both phases comment
+  in place (natural support for "lump" boards where Code Review happens
+  inside In Progress)
+- Missing key → phase doesn't execute on this board (defensive — the phase
+  is skipped entirely, not silently retargeted)
+
+Set during /init via anchor questions (one per phase) so the user explicitly
+states semantic intent ("which column means awaiting human review?"), not
+column ordering.
+-->
+```yaml
+jira_phase_map:
+  discovery: null                          # board has no Discovery column → comment-only
+  ready_for_dev: "Selected for Development"
+  in_progress: "In Progress"
+  code_review: "In Progress"               # same column reused — review happens inline
+  ready_for_release: "Ready for Release"
+  done: null                               # human-only; agent rejects phase=done
+```
+
+### Jira Board ID
+<!-- Used by /flow Step 0 (drift validation) and /init (column discovery). -->
+- 309
+
+### Discovery Column
+Investigate and advance
+<!-- Options: Investigate and advance / Ask me first / Skip Discovery -->
+
+### Active MCPs
+- Seq
+- Context7
+- Beads
+
+### CLI Tools
+- Jira (acli) — API token auth
+
+### Dashboard
+- Type: Local
+- Port: 3000
+- Auto-launch: Yes
+
+### Default /start Action
+Pick up next Jira ticket
+
+### Mutation Testing
+<!--
+Optional ADVANCED OVERRIDE. Tells the agent which mutation-testing tool
+(Stryker.NET for .NET, Stryker.JS for TS/JS, or Stryker for Scala/SBT) this
+project uses, and when to invoke it. Read by the agent during
+/flow, /bug, /build, /review-pr verification phases.
+
+**Most projects don't need this block.** Mutation testing is ON BY DEFAULT
+for every ticket that creates unit tests — no PROJECT.md edits required. The
+`Mutation testing` field in `/start`'s confirmation summary already defaults
+to `Yes — auto-detect tool at verification (recommended)`, and `/flow` Step
+11b auto-skips tickets that can't have unit tests (config, docs, infra,
+renames). To skip Stryker on one ticket, edit the field to `No` or say
+"no stryker" / "skip stryker" in your invocation.
+
+This block exists only to DEVIATE from the default-on behaviour:
+- `when_to_run: before_pr` — same as the default, but PINS a specific tool
+  (skips auto-detection) — useful when auto-detect would be ambiguous.
+- `when_to_run: test_only_prs` — default-on only for test-only PRs.
+- `when_to_run: manual` — opt the project OUT of default-on; Stryker then
+  runs only when explicitly requested per ticket. Use this for repos where
+  the suite is too slow to mutate on every ticket.
+
+**Setting up the block:**
+
+- **Easy path (recommended):** run `/init` and pick `Yes` when asked about
+  mutation testing. The toolbox writes this block + generates the minimal
+config file for you (`stryker-config.json` / `stryker.config.mjs`). See
+`commands/init.md` Step 5 sub-step 1c.
+- **Manual path:** edit this block directly. Update `tool`, `when_to_run`,
+  `config_path`, `output_dir` to match your project. Then create the
+  matching config file at the project root yourself.
+
+**To remove this override:** delete this entire section. The project
+reverts to the global default-on behaviour — Stryker runs by default on
+tickets that create unit tests, no project config required. (To turn
+mutation testing OFF for the project instead, keep the block and set
+`when_to_run: manual`.)
+
+⛔ THE BLOCK CONTAINS NO SHELL COMMANDS. PROJECT.md is committed to the
+repo and editable via PR. If we let projects supply `run_command` / etc.
+here, a malicious PR could replace `dotnet stryker` with arbitrary shell
+that the agent then executes during verification. Instead: the agent
+reads `tool` from this block and looks up the actual install + run
+commands from a toolbox-owned registry in the `workflow-discipline`
+skill (§1a) — a toolbox-internal file that PRs cannot modify without
+going through the toolbox's own code-review-orchestration first.
+Automated review caught this attack path on PR #58.
+
+The toolbox already has a guardrail in `rules/testing.md` ("Stryker
+Mutation Testing — Production Code Boundary") preventing the agent from
+modifying production code to kill surviving mutants. This block tells
+the agent WHICH tool and WHEN; the rule + registry tells it HOW.
+-->
+
+```yaml
+mutation_testing:
+  # Required. Which tool runs. Must be in the toolbox registry
+  # (rules/testing.md) — currently: stryker.net | stryker.js | scala-sbt.
+  # Unsupported tool name → agent refuses to autonomously invoke;
+  # user must run the tool manually.
+  tool: "stryker.net"
+  # Required. Path to the tool's config file, relative to repo root.
+  # This IS user-controlled but it's a file path, not shell.
+  config_path: "src/MyProject.Tests/stryker-config.json"
+  # When to invoke:
+  #   - "test_only_prs" — runs on PRs that touch only test files (default
+  #     for test-coverage-focused work)
+  #   - "manual" — user must explicitly ask ("run stryker", "check
+  #     mutation score") — RECOMMENDED for projects with non-default
+  #     tool wrappers or unusual setups
+  #   - "before_pr" — runs on every PR verification (heavy; not
+  #     recommended for fast-moving feature work)
+  when_to_run: "test_only_prs"
+  # Output directory — gitignored by /init. Stryker.NET defaults to
+  # StrykerOutput/; Stryker.JS defaults to reports/mutation/. Scala/SBT
+  # output is project-configured; add its path to .gitignore if needed.
+  output_dir: "StrykerOutput"
+  # Guardrail reference — surviving mutants are REPORTED as findings,
+  # NEVER an excuse to modify production code. See rules/testing.md.
+  guardrail: "rules/testing.md — Stryker Mutation Testing — Production Code Boundary"
+```
+
+### Verification
+
+<!--
+Optional ADVANCED OVERRIDE. Declares this project's definition of done in a
+form the agent can read without guessing: which ecosystem's commands to use,
+which gates count, what coverage bar to hold, and which paths are tests.
+
+**Most projects don't need this block.** With no block the agent detects the
+ecosystem by which manifest FILE exists, runs every gate that ecosystem has a
+command for, and holds the toolbox's own 80% coverage floor. An absent block is
+fully functional — this block exists ONLY to DEVIATE:
+
+- pin `runner:` when auto-detection would be ambiguous (mixed monorepo);
+- narrow `gates:` when one gate is genuinely not part of "done" here;
+- RAISE `coverage_floor:` above the toolbox minimum;
+- correct `test_globs:` when the project's test paths are unusual.
+
+**To remove this override:** delete this entire section. The project reverts to
+auto-detection plus the toolbox defaults.
+
+⛔ THE BLOCK CONTAINS NO SHELL COMMANDS. Same trust boundary as
+`mutation_testing` above, for the same reason: PROJECT.md is committed and
+editable through a PR, so any command STRING here would be an unreviewed
+code-execution path into the agent's environment. There is deliberately no
+`test_command`, `lint_command`, `build_command`, or `smoke_command` field, and
+adding one is not a shortcut — it is the attack path.
+
+The agent reads the KEYS below and looks the literal commands up in the
+toolbox-owned verification registry in the `workflow-discipline` skill (§1c) —
+a file a project PR cannot modify without going through the toolbox's own
+review first. Automated review caught this attack path on PR #58 (see the
+`mutation_testing` note above); `knowledge/toolbox-lessons.yml` TL-0005 records
+the general rule: detect which manifest FILE EXISTS, then run a fixed command
+for that ecosystem — the file's presence is the signal, its contents are never
+a command.
+
+Unrecognised values fail CLOSED: the agent refuses to run that gate and asks
+you to run it manually, rather than guessing a command.
+
+**Why there is no `smoke_command`.** A smoke check is inherently
+project-specific — start this service, hit this endpoint, expect this string.
+That makes it neither a fixed registry entry (there is no generic string to
+register) nor a PROJECT.md field (that is the forbidden shape). The registry
+does not register a generic smoke command. A project that needs a smoke check
+runs it manually and tells the agent the result.
+-->
+
+```yaml
+verification:
+  # Optional. Which ecosystem's fixed commands to use. `auto` (the default,
+  # and the behaviour when this whole block is absent) detects by which
+  # manifest FILE EXISTS — never by reading a file's contents.
+  # Valid values are exactly the registry keys in the `workflow-discipline`
+  # skill §1c: auto | dotnet | maven-wrapper | maven | gradle-wrapper |
+  # gradle | node-pnpm | node-yarn | node-npm | python.
+  # An unrecognised value fails closed — nothing runs and the agent asks.
+  runner: auto
+  # Optional. Which gates make up "done" here. ACTION NAMES ONLY, restricted
+  # to the three the registry knows: test | lint | build. Any other value is
+  # refused for that entry. Omit the key to run every gate the resolved
+  # runner has a command for. A gate the runner has no registry command for
+  # is reported UNAVAILABLE — never silently counted as passed.
+  gates: [test, lint, build]
+  # Optional. Minimum test coverage percentage, as an integer.
+  # ⛔ RAISE-ONLY CLAMP: the effective floor is max(80, this value). The 80%
+  # minimum is already asserted in the always-loaded `rules/testing.md` and
+  # its provider adapter, so a project may hold itself to a HIGHER bar but can
+  # never lower the toolbox-wide guarantee — a PR setting `coverage_floor: 10`
+  # would otherwise retire that guarantee with nothing in the diff that looks
+  # like a policy change. A value below 80 is kept in the file and ignored at
+  # runtime (failing the run instead would let one bad line block every
+  # workflow).
+  coverage_floor: 85
+  # Optional. Path patterns that count as TEST files. Used for the test-only
+  # PR boundary (`rules/workflow-discipline.md` Rule 6 — a test-only PR must
+  # not touch production code). These are PATHS matched against changed
+  # files: never executed, never passed to a shell, never shell-expanded.
+  # ⛔ NARROW-ONLY CLAMP: a pattern is IGNORED at runtime unless it names a
+  # test path SEGMENT — not merely a substring. Lower-case the pattern and
+  # look for `test`, `tests`, `spec`, `specs`, `e2e`, `fixture` or
+  # `fixtures`; the pattern is kept only if one of those occurrences has a
+  # delimiter on BOTH sides, where a delimiter is the start/end of the
+  # pattern or one of exactly FIVE characters: `/` `.` `_` `-` `,`. NOTHING
+  # ELSE DELIMITS — not a letter or digit, not a Unicode letter (so
+  # `caféspec/**` and `Ωtest/**` are discarded, not kept), and not `*` or `?`.
+  # A WILDCARD NEVER DELIMITS, on either side: `*` and `?`
+  # absorb arbitrary characters including letters, which is exactly what
+  # defeats a delimiter test. So `**/*test/**` would match `latest/` and
+  # `**/*test*/**` would match `app/attestation/` — both are ignored, and so
+  # is the .NET `*Tests` suffix shape (`**/*Tests.cs` matches
+  # `src/LatestTests.cs`; `**/*Tests/**` matches `src/LatestTests/`). Patterns
+  # containing `..`, brace alternation (`{`/`}`), a character class
+  # (`[`/`]`), extglob (`(`, `)`, `|`) or a LEADING `!` are ignored outright,
+  # before the delimiter test: each smuggles in a match the delimiter test
+  # cannot see — `{tests,src}/**` widens to `src`; `src/[test]/**` accepts
+  # `src/t/**` because `[test]` matches ONE character, not the word;
+  # `!(tests)/**` expands to every top-level entry EXCEPT tests; and
+  # `!tests/**` is negation, so it means every path NOT under tests. That
+  # last one is the easy accident — if you meant "exclude tests", this key is
+  # the wrong place to say it: `test_globs` lists what IS a test.
+  # KEPT:    `tests/**`, `__tests__/**`, `**/Tests/**`, `**/*.Tests/**`,
+  #          `**/*.Tests.cs`, `**/*.spec.ts`, `*.test.*`, `**/*_test.py`
+  # IGNORED: `**/*Tests/**`, `**/*Tests.cs`, `*test/**`, `**/*test*/**`,
+  #          `src/[test]/**`, `latest/**`, `contest/**`, `attestation/**`,
+  #          `src/inspector/**`, `app/Specifications/**`, `src/respec/**`,
+  #          and the catch-alls `**`, `**/*`, `*`
+  # Rule 6 cannot be emptied from here. Same reason `coverage_floor` above
+  # is raise-only: this file is outside the toolbox trust boundary, so it
+  # must not be able to retire a toolbox-wide guarantee with a line that
+  # does not look like a policy change.
+  # TWO REAL COSTS, both worth knowing before you write a pattern:
+  #  1. A legitimate test path that names none of those seven literals
+  #     (`unit/**`, `testing/**`, `TestUtils/**`, Perl's `t/**`) is ignored.
+  #     The only loosening that would admit `testing/**` or `TestUtils/**`
+  #     is letting a letter follow the keyword, and that also re-admits
+  #     `app/Specifications/**` and `TESTAMENT/**`; `unit/**` and `t/**`
+  #     contain no literal at all.
+  #  2. The `*Tests` suffix convention is common in .NET and is ignored,
+  #     because it is the same shape as the laundering it enables (see
+  #     `src/LatestTests.cs` above). Use `**/Tests/**` or `**/*.Tests/**` for
+  #     test directories, and `**/*.Tests.cs` for a file carrying a literal
+  #     `.Tests.`. Nothing covers a bare `CustomerServiceTests.cs` by
+  #     filename — in the standard .NET layout it lives inside a test
+  #     project directory, so a directory glob covers it instead.
+  # Nothing is dropped silently: every ignored pattern is reported BY NAME,
+  # with the clause that ignored it, and those files fall back to the
+  # agent's own judgement of which paths are tests — extra scrutiny, never
+  # less. Exact rule: the `workflow-discipline` skill §1c, "How the agent
+  # uses the block", step 5.
+  test_globs:
+    - "tests/**"
+    - "**/*.test.ts"
+    - "**/Tests/**"
+```
+
+### Loop Budget
+
+<!--
+Optional ADVANCED OVERRIDE. Bounds unattended iteration, in TWO places:
+
+- ONE self-paced `/loop` run — the loop body itself lives in `.claude/loop.md`
+  (template: `examples/loop.md.example`); and
+- the `/goal` exit conditions `/flow` sets inside its Implementation and
+  Verification phases, which are written from the clamped `max_turns` and
+  `no_progress_after` (see `commands/flow.md` → "`/goal` — Machine-Checkable
+  Phase Exits").
+
+That second consumer matters when you size these: an interactive `/goal` was
+never launched with a spend flag, so `max_spend_usd` does NOT bound it and the
+other two fields are its entire budget.
+
+**Most projects don't need this block.** With no block the toolbox defaults
+apply (see the `workflow-discipline` skill §1d). An absent block is fully
+functional.
+
+⛔ TIGHTEN-ONLY CLAMP. The effective value of every field is
+min(project value, toolbox ceiling). The ceilings live in the toolbox
+(`workflow-discipline` skill §1d) and are deliberately NOT settable here, for
+the same reason `rules/performance.md` keeps model and effort out of
+PROJECT.md: a behaviour-critical knob must not be raisable by a file that every
+contributor can edit through a PR. These three bound how long an agent runs
+unattended and how much it spends. A project may make its loop MORE cautious;
+it can never buy itself more turns, more idle iterations, or more money. A
+value above the ceiling is kept in the file and clamped at runtime.
+
+Every field is a NUMBER compared against a counter. None is a command, and
+none is interpolated into one. `max_turns` and `max_spend_usd` have NATIVE
+harness primitives (`CLAUDE_CODE_MAX_TURNS`, `--max-budget-usd`) — the
+supported `scripts/loop-launch.sh` applies them, and the toolbox deliberately
+keeps no turn counter or spend ledger of its own, because a second source of
+truth drifts.
+`no_progress_after` has no native primitive: it is compared by
+`~/.claude/scripts/loop-progress-signature.sh`, which the loop body has to call
+(see the `loop-design` skill, guard 2).
+
+The supported `scripts/loop-launch.sh` launcher reads these numeric values and
+applies the toolbox ceilings before invoking Claude's native turn and spend
+controls. It also exports the no-progress bound for loop bodies. Use that
+launcher for a project-configured loop; direct `/loop` and `/goal` invocations
+still require their own declared condition clauses and hook checks.
+-->
+
+```yaml
+loop:
+  # Iteration ceiling for one loop run. Clamped to the toolbox ceiling. The
+  # native CLAUDE_CODE_MAX_TURNS is applied by scripts/loop-launch.sh.
+  max_turns: 20
+  # Stop and escalate after this many consecutive iterations that changed
+  # nothing. This is the "am I actually getting anywhere" guard — a loop that
+  # keeps re-reading the same green PR should quit, not keep paying.
+  no_progress_after: 2
+  # Spend cap in USD for one loop run. The launcher applies it as
+  # --max-budget-usd.
+  max_spend_usd: 1.50
+```
+
+<!--
+DEPRECATED: jira_columns
+
+Older /init runs saved the full ordered column list to a top-level
+`jira_columns` field. The toolbox now reasons in PHASES, not column ordinals,
+so the column list is no longer the source of truth — `jira_phase_map` is.
+
+Migration: /flow Step 0 detects old PROJECT.md files that still have
+`jira_columns` but no `jira_phase_map` and runs the anchor questions once to
+populate the map. The legacy field is then removed automatically.
+
+If you see `jira_columns: ...` in your PROJECT.md, leave it for now — the
+next /flow run will migrate it.
+-->

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Thin, local CLI entry point. The Python runtime owns state and safety.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+exec python3 "$SCRIPT_DIR/goal_loop_runtime.py" "$@"

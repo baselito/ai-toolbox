@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "seq": {
+      "url": "https://logs.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SEQ_MCP_API_KEY}"
+      }
+    }
+  }
+}

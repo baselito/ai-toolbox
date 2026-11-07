@@ -1,0 +1,20 @@
+# Project-specific config (gitignored in developer repos)
+.claude/
+
+# Environment and secrets
+*.env
+# Memory files in developer projects (not this repo's template)
+**/memory.md
+!memory.md
+**/api-keys.json
+**/credentials.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# Isolated feature worktrees
+.worktrees/

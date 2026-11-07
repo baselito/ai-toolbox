@@ -1,0 +1,96 @@
+# .claude/handover.md — Template
+
+> This file is written by each agent and read by the next agent in the workflow.
+> It is gitignored — each task generates a fresh log.
+> Handover notes are also posted as Jira comments and updated in Beads.
+
+## Handover Log — [TICKET-ID]
+
+### [from-agent] -> [to-agent]
+Completed: [timestamp]
+Status: [PASSED / PASSED WITH NOTES / BLOCKED]
+
+What was done:
+-
+
+What was found:
+-
+
+What was fixed:
+-
+
+What the next agent needs to focus on:
+-
+
+Blockers (if any):
+-
+
+---
+
+## Example — Completed Handover Chain
+
+### tdd-guide -> code-reviewer
+Completed: 2026-03-17T10:23:00Z
+Status: PASSED
+
+What was done:
+- Wrote 3 unit tests for SpinnerComponent
+- All tests passing (RED -> GREEN -> REFACTOR complete)
+
+What was found:
+- Component had no existing test coverage
+
+What was fixed:
+- N/A — new component
+
+What the next agent needs to focus on:
+- Review implementation quality and naming conventions
+
+Blockers (if any):
+- None
+
+---
+
+### code-reviewer -> evidence-collector
+Completed: 2026-03-17T10:31:00Z
+Status: PASSED WITH NOTES
+
+What was done:
+- Reviewed SpinnerComponent implementation
+- Grade: B+
+
+What was found:
+- Spinner logic could be extracted to shared component for reuse
+- CSS class naming follows project conventions
+
+What was fixed:
+- N/A — review only
+
+What the next agent needs to focus on:
+- Verify Blazor component renders correctly in all states
+
+Blockers (if any):
+- None
+
+---
+
+### evidence-collector -> reality-checker
+Completed: 2026-03-17T10:35:00Z
+Status: PASSED
+
+What was done:
+- Captured screenshots of SpinnerComponent in loading, loaded, and error states
+- Visual comparison confirms correct rendering
+
+What was found:
+- All states render correctly
+- No visual regressions in surrounding components
+
+What was fixed:
+- N/A — visual verification only
+
+What the next agent needs to focus on:
+- Final readiness assessment
+
+Blockers (if any):
+- None

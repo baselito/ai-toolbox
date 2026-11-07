@@ -1,0 +1,107 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/enforce-chief-of-staff.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/workflow-auto-approve.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/push-safety.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/pr-action-safety.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/enforce-transition-script.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/enforce-pr-skill.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/enforce-jira-delegation.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/enforce-compliance-audit.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/enforce-skill-delegation.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/workflow-auto-approve.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/workflow-auto-approve.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/hooks/compliance-auditor.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Bash(acli jira *)",
+      "Bash(gh *)",
+      "Bash(git *)",
+      "Bash(bd *)",
+      "Glob",
+      "Read",
+      "Write(.claude/**)",
+      "Write(~/.claude/**)",
+      "Edit(.claude/**)",
+      "Edit(~/.claude/**)",
+      "Edit(.claude/handover.md)",
+      "Write(.claude/handover.md)",
+      "mcp__seq__*",
+      "mcp__context7__*"
+    ],
+    "deny": []
+  },
+  "disabledMcpServers": ["seq"]
+}

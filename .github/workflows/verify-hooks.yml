@@ -1,0 +1,157 @@
+name: Verify Hooks
+
+# Runs the behavioral test harness (scripts/verify-hooks.sh) against the
+# enforcement hooks on every PR that touches hooks/, scripts/verify-hooks.sh,
+# or this workflow itself.
+#
+# Why this exists:
+#   - bash -n only catches syntax errors, not logic bugs
+#   - Prior to verify-hooks.sh, silent bypass holes ship'd to main
+#     (transcript fallback, ^git push anchor, substring match bugs)
+#   - Every test case in the harness corresponds to a real production bug
+#   - This workflow ensures regressions are caught at PR review time,
+#     not after install
+
+on:
+  pull_request:
+    paths:
+      - 'hooks/**'
+      - 'scripts/verify-hooks.sh'
+      - 'scripts/sync-codex-pr-action-hook.sh'
+      - 'scripts/test-codex-merge-gate-spec.sh'
+      # ⛔ install.sh and uninstall.sh are HERE because the suite READS them. ⛔
+      # TC-HI-1/2/3/3b, TC-EFR-8 and TC-ELB-27 assert three-way agreement between
+      # the install.sh hook roster, hooks-config.json and hooks/*.sh; TC-HI-5/6/7
+      # assert the three uninstall.sh lists. Without these two entries an
+      # install.sh-ONLY edit that drops a hook from the roster does not trigger
+      # this workflow at all, so the assertion written to catch that exact drift
+      # never runs — and a registered-but-absent hook exits 127, which is not
+      # exit 2, so PreToolUse fails OPEN while install still prints success.
+      # That is #160 one level up: the guard existed, and nothing ran it.
+      # TC-CI-1 in scripts/verify-hooks.sh pins this list against the files the
+      # assertions actually read, so the next file added is covered too.
+      - 'scripts/install.sh'
+      - 'scripts/uninstall.sh'
+      # These two are here for the same reason: the suite READS them.
+      # TC-ELB-21/22 compare the loop ceilings in enforce-loop-bounds.sh
+      # against skills/workflow-discipline/SKILL.md, and TC-DOC-SR-1/2
+      # compare the state-root gate list and count in
+      # docs/concepts/independence-principle.md against the hooks that
+      # actually carry the guard. SKILL.md was in NO paths entry, so a
+      # skill-only edit that broke TC-ELB-21/22 did not trigger this
+      # workflow at all — the same #160 shape one level up. TC-CI-1 now
+      # derives this list from every $REPO_ROOT/<path> the suite reads,
+      # not just scripts/, so the next one is covered too.
+      - 'skills/workflow-discipline/SKILL.md'
+      - 'docs/concepts/independence-principle.md'
+      - '.github/workflows/verify-hooks.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'hooks/**'
+      - 'scripts/verify-hooks.sh'
+      - 'scripts/sync-codex-pr-action-hook.sh'
+      - 'scripts/test-codex-merge-gate-spec.sh'
+      # ⛔ install.sh and uninstall.sh are HERE because the suite READS them. ⛔
+      # TC-HI-1/2/3/3b, TC-EFR-8 and TC-ELB-27 assert three-way agreement between
+      # the install.sh hook roster, hooks-config.json and hooks/*.sh; TC-HI-5/6/7
+      # assert the three uninstall.sh lists. Without these two entries an
+      # install.sh-ONLY edit that drops a hook from the roster does not trigger
+      # this workflow at all, so the assertion written to catch that exact drift
+      # never runs — and a registered-but-absent hook exits 127, which is not
+      # exit 2, so PreToolUse fails OPEN while install still prints success.
+      # That is #160 one level up: the guard existed, and nothing ran it.
+      # TC-CI-1 in scripts/verify-hooks.sh pins this list against the files the
+      # assertions actually read, so the next file added is covered too.
+      - 'scripts/install.sh'
+      - 'scripts/uninstall.sh'
+      # These two are here for the same reason: the suite READS them.
+      # TC-ELB-21/22 compare the loop ceilings in enforce-loop-bounds.sh
+      # against skills/workflow-discipline/SKILL.md, and TC-DOC-SR-1/2
+      # compare the state-root gate list and count in
+      # docs/concepts/independence-principle.md against the hooks that
+      # actually carry the guard. SKILL.md was in NO paths entry, so a
+      # skill-only edit that broke TC-ELB-21/22 did not trigger this
+      # workflow at all — the same #160 shape one level up. TC-CI-1 now
+      # derives this list from every $REPO_ROOT/<path> the suite reads,
+      # not just scripts/, so the next one is covered too.
+      - 'skills/workflow-discipline/SKILL.md'
+      - 'docs/concepts/independence-principle.md'
+      - '.github/workflows/verify-hooks.yml'
+
+# Cancel in-progress runs for the same ref if a new commit lands.
+# For PRs this cancels stale runs on rebase/amend. For main pushes this
+# keeps only the latest run. Saves runner minutes on rapid pushes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege permissions. This workflow only reads repo content;
+# explicit read-only prevents org-level default: write-all from granting
+# unneeded write access to GITHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Run verify-hooks.sh
+    runs-on: ubuntu-latest
+    # ubuntu-latest has bash 5, jq, git, and GNU grep — same tooling
+    # developers have locally. macOS runners would also work but cost
+    # ~10x more. Our hooks use [[:space:]] instead of \s in most places
+    # for POSIX portability (see PR #1); \b word boundaries verified
+    # working on both BSD and GNU grep. A macOS matrix is a future
+    # enhancement if macOS-specific regressions ever surface.
+    steps:
+      - name: Checkout
+        # Pinned to SHA (v4.2.2 as of April 2026) for supply-chain hardening.
+        # Update via dependabot when a new release is vetted.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Ensure jq is installed
+        run: |
+          which jq || { echo "jq is required"; exit 1; }
+          jq --version
+
+      - name: Ensure git is configured (for git init in test workspaces)
+        run: |
+          git --version
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI"
+          git config --global init.defaultBranch main
+
+      - name: Make scripts executable
+        run: |
+          chmod +x hooks/*.sh
+          chmod +x scripts/verify-hooks.sh
+          chmod +x scripts/sync-codex-pr-action-hook.sh
+          chmod +x scripts/test-codex-merge-gate-spec.sh
+
+      - name: Run bash -n on all hooks
+        # First catch syntax errors before running behavioural tests
+        run: |
+          for hook in hooks/*.sh; do
+            bash -n "$hook" || { echo "Syntax error in $hook"; exit 1; }
+          done
+          echo "All hooks parse OK"
+
+      - name: Run verify-hooks.sh
+        # Tee the harness output to a file so we can append to the job
+        # summary regardless of exit code. PIPESTATUS[0] preserves the
+        # harness's real exit code; we exit with it at the end.
+        run: |
+          set -o pipefail
+          ./scripts/verify-hooks.sh 2>&1 | tee /tmp/harness-output.txt
+          STATUS=${PIPESTATUS[0]}
+          {
+            echo "## Hook Verification Results"
+            echo ""
+            echo '```'
+            cat /tmp/harness-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$STATUS"
+
+      - name: Run Codex merge-gate installation regression test
+        run: ./scripts/test-codex-merge-gate-spec.sh

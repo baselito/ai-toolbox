@@ -1,0 +1,405 @@
+# toolbox-lessons.yml — Durable learned lessons from review findings.
+#
+# WHY this file exists:
+#   The merge-time self-improvement loop (Phase 1) collects findings from
+#   automated-review and Codex review passes, applies an AI+Codex consensus to decide
+#   which to keep, and appends the approved lessons here via a human-gated PR.
+#   This is the SLOW tier (full history). The FAST tier (~/.claude/toolbox-knowledge/lessons.yml)
+#   is generated from this file by scripts/sync-toolbox-lessons.sh on install/update.
+#
+# Schema:
+#   schema_version: 1    — bumped when the shape changes; sync-toolbox-lessons.sh reads this
+#   lessons:             — list of lesson entries (or empty list [] at first install)
+#
+# Per-lesson fields:
+#   id:           unique identifier, format TL-NNNN
+#   category:     one of the 12 automated-review false-positive categories (see
+#                 skills/codex-review/review-concepts-distilled.md) or a custom
+#                 category name
+#   lesson:       1-3 sentences describing what was learned
+#   guidance:     1-2 sentences on how to apply this going forward
+#   sources:      list of {pr, origin, verdict, ts} — where this lesson came from
+#     pr:         repo#number, e.g. "inherited-history#97"
+#     origin:     "automated-review" or "codex"
+#     verdict:    "fixed" / "false-positive" (automated-review) or "accepted" / "dismissed" (codex)
+#     ts:         ISO 8601 timestamp
+#   occurrences:  how many times this pattern has been seen
+#   first_seen:   YYYY-MM-DD
+#   last_seen:    YYYY-MM-DD
+#   status:       "active" (inject into prompts) | "superseded" (keep for audit, skip fast tier)
+#   priority:     (optional) "high" = keep in the fast tier ahead of more frequent
+#                 lessons. Use for severe consequence (code execution, data loss,
+#                 a silent-failure class), NOT for how often it has been seen —
+#                 frequency is already the secondary sort key.
+#   superseded_by: (optional) id of the lesson that replaces this one
+#
+# Rules for human-gated PRs that add lessons:
+#   - AI+Codex consensus required (both must vote "keep") — R1
+#   - This PR must NOT auto-merge even on ai-engineering — R2
+#   - Lessons are ADVISORY KNOWLEDGE only — never executable, never auto-edit rules/hooks
+#   - Lesson bodies MUST pass the prompt-injection defense check before landing here
+#
+# Sync:
+#   scripts/sync-toolbox-lessons.sh reads this file and produces:
+#   - ~/.claude/toolbox-knowledge/toolbox-lessons.yml  (SLOW: full copy)
+#   - ~/.claude/toolbox-knowledge/lessons.yml           (FAST: active-only, ≤ 8 KB)
+#
+schema_version: 1
+lessons:
+  - id: TL-0001
+    category: guard-fail-open
+    lesson: >-
+      Staleness/marker checks in PreToolUse hooks kept failing OPEN. Four causes in one
+      branch: `stat` failing aborted under `set -u` before any deny was emitted; `stat -f %m`
+      is BSD-only while GNU exits 0 printing literal `%m`; a future-dated marker passed the
+      age comparison; and a two-block guard let the marker be recreated mid-check.
+    guidance: >-
+      Every unparsed value, failed syscall and negative age must take the DENY path
+      explicitly. Probe both `stat -c %Y` and `stat -f %m`, require all-digits, treat
+      negative or unset age as stale.
+    occurrences: 6
+    first_seen: 2026-07-28
+    last_seen: 2026-08-22
+    status: active
+    sources:
+      - {pr: "inherited-history#132", origin: codex, verdict: accepted, ts: "2026-07-28T18:16:59Z"}
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+  - id: TL-0002
+    category: detector-inert
+    lesson: >-
+      A detector never made to FAIL cannot be trusted to pass. On the tier gate one detector
+      shipped fully inert (greedy capture vs exact-key lookup: matched nothing, looked
+      complete), a fence-parity bug silently BLANKED two file tails including a
+      spawn-decision file, and two consecutive "fixes" each opened a new false negative.
+    guidance: >-
+      Write a harness that injects a must-fail case per detector class into a real file,
+      asserts the exact reported file AND line, restores, asserts clean. Green on a clean
+      tree proves nothing.
+    occurrences: 5
+    first_seen: 2026-07-29
+    last_seen: 2026-07-29
+    status: active
+    sources:
+      - {pr: "inherited-history#133", origin: codex, verdict: accepted, ts: "2026-07-29T09:36:22Z"}
+
+  - id: TL-0003
+    category: partial-gate-false-confidence
+    lesson: >-
+      A gate covering part of a surface reads as covering all of it. The tier gate adjudicated
+      68% of tier-mentioning lines; twice a commit cited a green run to claim "zero remain"
+      when dozens did. Same shape in a count check that passed silently when `grep` found no
+      count line at all.
+    guidance: >-
+      Make partial coverage self-reporting — print what was NOT checked on every run, pass or
+      fail. A check whose subject is missing must FAIL, never quietly succeed.
+    occurrences: 2
+    first_seen: 2026-07-07
+    last_seen: 2026-07-07
+    status: active
+    sources:
+      - {pr: "inherited-history#118", origin: automated-review, verdict: fixed, ts: "2026-07-07T15:25:02Z"}
+
+  - id: TL-0004
+    category: repo-identity-unprovable
+    lesson: >-
+      Repo identity cannot come from the checkout. `remote.origin.url` is local config a
+      hostile checkout sets freely, and a glob on it is satisfied by `owner/repo-malicious`.
+      Separately a skill fell back to executing a REPO-LOCAL `./scripts/...` helper, handing
+      a malicious reviewed repo code execution.
+    guidance: >-
+      Never gate trust on git metadata, and never execute a script from the repo under
+      review. Resolve helpers to installed absolute paths; drop repo-relative fallbacks
+      rather than ordering them second.
+    priority: high
+    occurrences: 5
+    first_seen: 2026-07-03
+    last_seen: 2026-08-22
+    status: active
+    sources:
+      - {pr: "inherited-history#105", origin: automated-review, verdict: fixed, ts: "2026-07-03T09:03:55Z"}
+      - {pr: "inherited-history#124", origin: automated-review, verdict: fixed, ts: "2026-07-10T08:17:16Z"}
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+  - id: TL-0005
+    category: prose-as-command-source
+    lesson: >-
+      Agent markdown files are LIVE EXECUTION PROMPTS, so telling an agent to read a command
+      out of repo content is a code-execution path. One fix said "read PROJECT.md (or the
+      manifest) and run THAT"; another recommended `rm -rf node_modules package-lock.json`,
+      turning a build error into an unreviewed dependency bump.
+    guidance: >-
+      Select commands by detecting which manifest FILE EXISTS, then run a fixed command for
+      that ecosystem. The file's presence is the signal; its contents are never a command.
+      Never delete a lockfile to fix a build.
+    priority: high
+    occurrences: 1
+    first_seen: 2026-07-29
+    last_seen: 2026-07-29
+    status: active
+    sources:
+      - {pr: "inherited-history#133", origin: session, verdict: observed, ts: "2026-07-29T00:00:00Z", note: "PR #133 configured reviewer review, 2026-07-29 — post-fold, not in the captured corpus"}
+
+  - id: TL-0006
+    category: state-keyed-too-loosely
+    lesson: >-
+      State keyed by PR NUMBER ALONE collides across repos. A manual `/review-pr 12` could
+      `CronDelete` another repo's live cron, and number-keyed snapshots in `~/.claude` are
+      readable — then deletable — by a run in a different repository.
+    guidance: >-
+      Key cross-repo state files, markers and crons by `owner-repo-number`. If the key cannot
+      change yet, gate every reader with the same repo condition the writer uses.
+    priority: high
+    occurrences: 3
+    first_seen: 2026-07-03
+    last_seen: 2026-07-28
+    status: active
+    sources:
+      - {pr: "inherited-history#105", origin: codex, verdict: accepted, ts: "2026-07-03T08:48:54Z"}
+      - {pr: "inherited-history#132", origin: codex, verdict: accepted, ts: "2026-07-28T15:31:54Z"}
+      - {pr: "inherited-history#132", origin: codex, verdict: deferred, ts: "2026-07-28T18:16:59Z"}
+
+  - id: TL-0007
+    category: stale-count-and-pointer
+    lesson: >-
+      Moving or renaming content strands references. Observed: skill totals stale in six files
+      at once; an intro count bumped while the section header below it was not; a README table
+      saying 5 where the same file's prose said 7; See-Also links pointing at tables that had
+      moved to a skill.
+    guidance: >-
+      After changing a count or moving a section, grep the OLD number and OLD path across
+      every `.md` and `.json`, fixing all hits in one commit. Check the edited file against
+      itself first.
+    occurrences: 6
+    first_seen: 2026-07-06
+    last_seen: 2026-07-28
+    status: active
+    sources:
+      - {pr: "inherited-history#111", origin: codex, verdict: accepted, ts: "2026-07-06T11:50:18Z"}
+      - {pr: "inherited-history#113", origin: codex, verdict: accepted, ts: "2026-07-07T09:36:17Z"}
+      - {pr: "inherited-history#118", origin: codex, verdict: accepted, ts: "2026-07-07T15:14:01Z"}
+      - {pr: "inherited-history#132", origin: codex, verdict: accepted, ts: "2026-07-28T15:31:54Z"}
+
+  - id: TL-0008
+    category: test-overclaim
+    lesson: >-
+      Test names and comments claimed coverage the assertions lacked — one claimed CR/VT/FF
+      while only LF and CR were exercised. Two tests also passed for the WRONG reason: a
+      fixture writing a literal backslash-n, and an assertion that would have accepted a
+      `deny` where it required a fall-through.
+    guidance: >-
+      A test's name and comment are claims — check each against what the assertion actually
+      does. Make a new test FAIL before trusting that it passes.
+    occurrences: 7
+    first_seen: 2026-07-03
+    last_seen: 2026-08-22
+    status: active
+    sources:
+      - {pr: "inherited-history#105", origin: automated-review, verdict: fixed, ts: "2026-07-03T09:03:55Z"}
+      - {pr: "inherited-history#113", origin: codex, verdict: accepted, ts: "2026-07-07T09:36:17Z"}
+      - {pr: "inherited-history#119", origin: automated-review, verdict: fixed, ts: "2026-07-07T15:36:19Z"}
+      - {pr: "inherited-history#119", origin: codex, verdict: accepted, ts: "2026-07-07T15:11:45Z"}
+      - {pr: "inherited-history#124", origin: automated-review, verdict: fixed, ts: "2026-07-10T08:17:16Z"}
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+  - id: TL-0009
+    category: paginated-api-cap
+    lesson: >-
+      Convenience JSON fields silently cap. A precheck counted issue comments from
+      `gh pr view --json comments`, which GraphQL caps at 100 — the same dropped-beyond-cap
+      class as an earlier pagination bug on review threads.
+    guidance: >-
+      Any GitHub count that gates a decision must come from an explicitly paginated query,
+      never a `--json` convenience field.
+    occurrences: 1
+    first_seen: 2026-07-03
+    last_seen: 2026-07-03
+    status: active
+    sources:
+      - {pr: "inherited-history#105", origin: codex, verdict: accepted, ts: "2026-07-03T08:48:54Z"}
+
+  - id: TL-0010
+    category: blanket-substitution-damage
+    lesson: >-
+      Repo-wide find/replace leaves recognisable wreckage: doubled words ("Opus and Opus"),
+      no-op escalations ("Opus -> Opus", "Opus/Opus"), a historical mechanism renamed until it
+      no longer parsed, and — worst — an already-CORRECT line turned wrong ("Haiku for doc
+      updates" became "Opus for doc updates").
+    guidance: >-
+      Apply doc edits line-by-line, asserting the expected substring occurs exactly once on
+      that exact line. After any sweep, scan for doubled tier words and self-cancelling
+      sentences.
+    occurrences: 1
+    first_seen: 2026-07-29
+    last_seen: 2026-07-29
+    status: active
+    sources:
+      - {pr: "inherited-history#133", origin: session, verdict: observed, ts: "2026-07-29T00:00:00Z", note: "PR #133 configured reviewer review, 2026-07-29 — post-fold, not in the captured corpus"}
+
+  - id: TL-0011
+    category: unverified-verification-claim
+    lesson: >-
+      The most repeated failure was not a code defect but a false claim ABOUT verification.
+      Five commit messages on one branch were corrected for asserting checks never run —
+      including "both directions verified" on a change tested only in the direction just
+      fixed, and "zero remain" resting on a grep written AFTER the fix.
+    guidance: >-
+      A verification claim names the command and its output, or it is not made. Never
+      validate a fix with a pattern authored after it — that is a mirror. Always test the
+      INVERSE of what you changed.
+    priority: high
+    occurrences: 1
+    first_seen: 2026-07-29
+    last_seen: 2026-07-29
+    status: active
+    sources:
+      - {pr: "inherited-history#133", origin: session, verdict: observed, ts: "2026-07-29T00:00:00Z", note: "PR #133 commit-message corrections, 2026-07-29 — not in the captured corpus"}
+
+  - id: TL-0012
+    category: capture-without-consumption
+    lesson: >-
+      This file sat empty for a month while 69 findings across 12 PRs went unread in
+      `~/.claude/pending-lessons-*.jsonl`. Capture worked; consumption was keyed to the
+      CURRENT PR number, so a file written for #105 could never be read once #105 merged. The
+      loop failed silently, which is why nobody noticed.
+    guidance: >-
+      A pipeline whose last stage is human-gated needs a visible backlog. Sweep ALL pending
+      inputs, not just the current key, and surface the pending count somewhere routine.
+    priority: high
+    occurrences: 2
+    first_seen: 2026-07-29
+    last_seen: 2026-08-22
+    status: active
+    sources:
+      - {pr: "inherited-history#133", origin: session, verdict: observed, ts: "2026-07-29T00:00:00Z", note: "observed directly while writing this file, 2026-07-29 — the outage has no capture record because capture is the stage that worked"}
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+  - id: TL-0013
+    category: multiple-writers-one-authority
+    lesson: >-
+      One file authorized a destructive action while FIVE code paths wrote to it. The
+      dismissed-deviations log is the only thing that lets the archive pass retire a
+      snapshot, yet `improve N`, `ignore N`, Cleanup, `lessons-drop N` and `lessons-pr`
+      each described their own append. Three were English prose, so no grep for `>>`
+      found them and four rounds of review each caught only the writers that looked
+      like code.
+    guidance: >-
+      When a file's CONTENTS authorize an irreversible action, give it exactly one
+      writer and make every other mention point at it. Then bind that with an
+      assertion that enumerates mentions in ANY shape — prose, fenced code, redirect,
+      alias variable — not a needle matching one syntax.
+    occurrences: 1
+    first_seen: 2026-08-22
+    last_seen: 2026-08-22
+    status: active
+    priority: high
+    sources:
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+  - id: TL-0014
+    category: truncated-key-as-authority
+    lesson: >-
+      An 8-character hash prefix was used as the KEY that decides whether a record is
+      already dismissed, so one record's dismissal could retire a different record
+      sharing that prefix — and the archive pass only needs an anchored `^[<hash>] `
+      match to treat a snapshot as fully decided.
+    guidance: >-
+      A display form and a key are different things. Carry the FULL digest as the key
+      and truncate only for human output. Never let a shortened identifier gate a
+      destructive step.
+    occurrences: 1
+    first_seen: 2026-08-22
+    last_seen: 2026-08-22
+    status: active
+    sources:
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+  - id: TL-0015
+    category: claimed-ordering-not-enforced
+    lesson: >-
+      A guard's documented ordering did not match its code: per-file stats ran BEFORE
+      the repo gate that was supposed to precede them. Reads, not writes, so it opened
+      no hole — but the next change inherits the wrong belief about what has already
+      been checked when it adds a write.
+    guidance: >-
+      If a comment claims guard A runs before B, put B physically inside A's branch so
+      the claim is structural rather than narrative. A false ordering claim is a defect
+      even when the current code is harmless.
+    occurrences: 1
+    first_seen: 2026-08-22
+    last_seen: 2026-08-22
+    status: active
+    sources:
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+  - id: TL-0016
+    category: sentinel-search-vs-compare
+    lesson: >-
+      A capture step dropped any record whose body merely CONTAINED the sentinel text
+      `None observed.`, because it used a regex search where a whole-body comparison was
+      meant. A deviation that quoted the sentinel while reporting something real was
+      silently discarded.
+    guidance: >-
+      When a sentinel means "this record is empty", compare the WHOLE trimmed body to
+      it. A substring search silently eats legitimate content that mentions the
+      sentinel, and the loss leaves no trace.
+    occurrences: 1
+    first_seen: 2026-08-22
+    last_seen: 2026-08-22
+    status: active
+    sources:
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+  - id: TL-0017
+    category: phantom-mechanism
+    lesson: >-
+      A documented fallback was unimplementable from the data actually persisted: it
+      told the agent to "search for the hash" across snapshots, but a snapshot record
+      holds only `{ts, phase, body}` and never stores the hash. The instruction looked
+      plausible, was reviewed repeatedly, and could only ever find nothing.
+    guidance: >-
+      Before documenting a lookup, check the stored record actually contains the field
+      being looked up. Specify the DERIVATION (recompute the digest from the body) when
+      the value is not persisted.
+    occurrences: 1
+    first_seen: 2026-08-22
+    last_seen: 2026-08-22
+    status: active
+    sources:
+      - {pr: "inherited-history#136", origin: codex, verdict: accepted, ts: "2026-08-22T10:24:13Z"}
+  - id: TL-0018
+    category: audit-severity-mistriage
+    lesson: >-
+      An audit named a concrete security-boundary hole and labelled it INFO; the label
+      was accepted and the finding deferred. The external reviewer then filed the same
+      hole as CRITICAL, twice. The audit text was right and specific — "the bullet is
+      labelled `names no test path segment` but the rule it states is a substring test,
+      and `latest/**` contains `test` and survives" — only its severity was wrong.
+    guidance: >-
+      Triage an audit finding on what it DESCRIBES, not on the severity the auditor
+      attached. If a finding names a specific input that crosses a trust boundary, it is
+      a blocker regardless of its label. Re-read every INFO for that shape before
+      deferring the batch.
+    occurrences: 1
+    first_seen: 2026-08-22
+    last_seen: 2026-08-22
+    status: active
+    priority: high
+    sources:
+      - {pr: "inherited-history#137", origin: session, verdict: accepted, ts: "2026-08-22T20:23:16Z"}
+  - id: TL-0019
+    category: guard-prose-overclaims
+    lesson: >-
+      Across four review rounds on one PR the guard CODE improved every round while the
+      COMMENT describing it was wrong in the same direction every round — claiming
+      "fails closed on every ambiguity" when malformed JSON failed open, then that a
+      line "must be that command and nothing else" when rider tokens passed, then that
+      non-boolean values "fall through" when the string "false" did not. One comment
+      warning against apostrophes inside a single-quoted awk program contained three
+      apostrophes and broke the block it was protecting.
+    guidance: >-
+      Test the CLAIM, not just the code. Before committing a comment that says what a
+      guard rejects, execute the rejected inputs against it. Prefer stating what the
+      check does NOT cover in a named residual paragraph — an unnamed residual is how
+      the same over-claim returns next round.
+    occurrences: 4
+    first_seen: 2026-08-22
+    last_seen: 2026-08-23
+    status: active
+    priority: high
+    sources:
+      - {pr: "inherited-history#137", origin: session, verdict: accepted, ts: "2026-08-22T20:23:16Z"}
+      - {pr: "inherited-history#137", origin: session, verdict: accepted, ts: "2026-08-23T17:20:00Z"}

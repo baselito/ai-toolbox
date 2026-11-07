@@ -1,0 +1,5 @@
+# This CODEOWNERS file exists purely as ownership metadata.
+# Do NOT create /.codeowners-anchor/ — it exists only to
+# anchor ownership without triggering auto-review-requests.
+
+/.codeowners-anchor/ @baselito

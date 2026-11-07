@@ -1,0 +1,244 @@
+# .claude/loop.md — Example (autonomous PR tending)
+
+> Copy this file to `.claude/loop.md` in a project, then run a bare `/loop`
+> (no interval) to let the agent pace itself. Installation, the three trigger
+> tiers, and which one is authoritative: `docs/how-to/project-config.md` →
+> "loop.md — the autonomous loop body".
+>
+> Nothing installs this for you. `scripts/install.sh` does not copy `examples/`,
+> and `.claude/` is gitignored, so the file is per-developer and per-project by
+> design — a loop body is a standing instruction to act unattended, and that
+> should be an explicit local choice, not something an install script grants.
+
+<!--
+  WHY THIS FILE EXISTS
+  ====================
+  A bare self-paced `/loop` reads `.claude/loop.md` and runs it instead of the
+  built-in maintenance prompt. Project level beats user level, it is re-read at
+  the start of every iteration (so editing it steers a running loop), and it is
+  truncated past 25,000 bytes — keep it well under that, and keep the rationale
+  short enough that the directives are never the part that gets cut.
+
+  WHAT IT IS FOR
+  ==============
+  Tending open PRs the toolbox authored: unresolved review threads, failing CI,
+  merge conflicts, stale rebases. That work is bursty and arrives while you are
+  busy elsewhere, which is exactly when it gets forgotten.
+
+  WHAT IT IS NOT FOR
+  ==================
+  Development. A loop must not pick up tickets, invent scope, or start features
+  — those go through `/flow` with its gates and its human confirmations. This
+  loop only tends work that already exists in an open PR.
+-->
+
+---
+
+## Everything below this line is the loop body
+
+You are tending open pull requests in this repository. Run ONE pass, then stop
+and let the loop decide when to run again.
+
+### The one rule that outranks the rest
+
+**You PROPOSE and you FIX. Auto-merge is allowed only for
+`baselito/ai-engineering`, and only through the GoalRun scoped policy plus the
+live merge hook.** For every other repository, `/merge-pr` remains
+user-commanded and this loop reports readiness without merging. Do not
+force-push, do not close a PR, and do not rewrite anyone else's branch.
+
+### Each iteration
+
+1. **List the open PRs this repo has that you authored.** No PRs → you are done
+   for this iteration; see "Silence" below.
+
+2. **For each one, run `/review-pr --repo <owner>/<repo> <N>`.** This is the
+   real mechanism, not a fallback. Running `/review-pr` inline when you return
+   to a PR is the path that has actually been working — see "Which tier is
+   authoritative" below. It handles unresolved review threads (human and bot),
+   decides agreement per finding, and either replies or fixes.
+
+3. **Then check the mechanical health of the branch**, which review threads do
+   not cover:
+   - **Failing CI** — read the failing job's log before touching anything. Fix
+     the cause, not the symptom. A flaky-looking failure that you cannot
+     explain is an escalation, not a re-run.
+   - **Merge conflicts** — resolve only where the intent of both sides is
+     unambiguous from the diff. Ambiguity is an escalation.
+   - **Stale branch** — behind the base branch with no conflict: **merge the
+     base in and push.** Do NOT rebase. Rebasing a branch that is already
+     pushed rewrites published history, so the follow-up push is refused as
+     non-fast-forward and can only be completed with `--force` — which the rule
+     above forbids and which `hooks/push-safety.sh` blocks on every branch,
+     ahead of any approval token. Rebase first and you are left with a local
+     branch diverged from the live PR and no move you are allowed to make. If
+     this repo insists on linear history and will not take a merge commit, that
+     is an escalation: say so and let a human rebase. Behind WITH conflicts:
+     see above.
+
+4. **Record what changed this iteration** — one line per PR. This is not
+   bookkeeping: it decides WHICH detector call you make below. The record
+   itself does not need to persist; the detector's `--state` file is what
+   carries across iterations.
+
+### Bounds — use the native primitives, add nothing
+
+The harness already enforces both hard limits. Do not build a turn counter or a
+spend ledger in the loop body; a second source of truth drifts from the first.
+
+| Bound | Mechanism | Effect |
+|---|---|---|
+| Iteration ceiling | `CLAUDE_CODE_MAX_TURNS` | The loop stops after N turns. |
+| Spend cap | `--max-budget-usd` | The loop stops when the run has cost that much. |
+| No progress | `loop-progress-signature.sh`, called EVERY iteration | Exit 3 → you stop and escalate. |
+
+**The no-progress rule has a mechanism — use it, don't eyeball it.** If two
+consecutive iterations changed nothing — no reply posted, no commit pushed, no
+conflict resolved — stop looping and escalate once. A loop that keeps re-reading
+a quiet green PR is paying to learn nothing.
+
+Run the detector EVERY iteration, including the quiet ones. Step 4's record
+picks exactly one of these three calls:
+
+```bash
+D=~/.claude/scripts/loop-progress-signature.sh
+S=.claude/.loop-progress
+
+# (a) Something landed — a reply posted, a commit pushed, a conflict
+#     resolved. Real progress: reset the counter.
+bash $D --state $S --failing-gates "" --threshold 2
+
+# (b) Nothing landed and no gate failed — the quiet green PR. THIS is the
+#     case the rule above is about. The signature is constant by design, so
+#     the second consecutive quiet iteration exits 3.
+bash $D --state $S --failing-gates "no-change" --threshold 2
+
+# (c) A gate failed (CI red, a fix that isn't landing).
+bash $D --state $S --failing-gates "ci" --threshold 2 --output /tmp/ci-log.txt
+# exit 0 = keep going   exit 3 = stop and escalate   exit 2 = detector did
+# not run; fall back to the turn bound, never read silence as progress
+```
+
+**⛔ Do not pass empty gates on a quiet iteration. ⛔** Empty means
+"converged" — the detector DELETES the state file and reports progress, so
+case (b) routed through case (a) can never trip the guard no matter how many
+idle iterations run. Skipping the call entirely has the same effect: an
+iteration you do not record cannot count toward the bound.
+
+It keys on a normalised failure signature, **not on file mtimes** — a loop
+rewriting the same failing file looks healthy to an mtime detector forever, which
+is exactly the case this guard exists to catch. Doctrine for all three guards:
+the `loop-design` skill.
+
+A project may tighten all three through the `loop:` block in
+`.claude/PROJECT.md` (`max_turns`, `no_progress_after`, `max_spend_usd`). Those
+values are tighten-only: the effective value is `min(project, toolbox ceiling)`
+and the ceilings are not settable from `PROJECT.md`. See the
+`workflow-discipline` skill §1d.
+
+The supported launcher applies the project values when the run starts:
+
+```bash
+bash ~/.claude/scripts/loop-launch.sh --print
+```
+
+The launcher sets `CLAUDE_CODE_MAX_TURNS`, `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`,
+and `--max-budget-usd` from the clamped `loop:` values, and exports the
+no-progress bound for the loop body. The cross-repository auto-poll uses its
+own safe default threshold. A
+`/goal` inside an interactive `/flow` session remains bounded by its
+condition text and has no native dollar flag.
+
+### Pacing
+
+Widen your own interval when the PRs are quiet; tighten it when they are
+active. A PR with a reviewer replying right now deserves a check every couple
+of minutes; a PR that has been green and idle for a day does not. Self-pacing is
+the point of a bare `/loop` — a fixed interval either burns budget on silence or
+misses the burst.
+
+### Escalate rather than guess
+
+Stop the loop and tell the user — do not improvise, and do not keep iterating in
+the hope that it resolves itself:
+
+| Trigger | Why it is an escalation |
+|---|---|
+| The goal is ruled impossible | Something outside the loop's reach has to change. Iterating cannot fix it. |
+| No progress (the rule above) | Further iterations cost money and produce nothing. |
+| A cap was hit (turns or spend) | The bound is the answer. Report where you got to. |
+| An **L5** action is required — push to a protected branch, merge, anything touching auth or credentials, anything that spends money, anything touching production | These need a human decision, and the loop is unattended by definition. |
+| A change can only be published by rewriting published history | Force-push is blocked on every branch by `hooks/push-safety.sh`; only a human can do it. |
+| Genuine ambiguity | Two defensible readings of a reviewer comment, a conflict where both sides look intentional, a failure you cannot explain. Guessing here produces confidently wrong commits. |
+
+Escalating is a success condition for this loop, not a failure. The cost of one
+interruption is far below the cost of an unattended agent acting on a guess.
+
+### Silence
+
+**When there is nothing to do, say nothing.** No "checked 3 PRs, all green", no
+"no new comments", no summary of the work you did not need to do. A loop that
+reports activity when it is idle trains people to stop reading it, and then the
+one message that mattered gets skimmed past too.
+
+Speak up only when you: changed something, are escalating, or are reporting that
+a PR is now merge-ready (once — not on every subsequent iteration).
+
+---
+
+## Three trigger tiers, and which one is authoritative
+
+This loop is one of three ways PR tending gets triggered. They are not
+equivalent, and only the first two are dependable.
+
+| Tier | What it is | Survives the session? | Standing |
+|---|---|---|---|
+| **1. In-session driver** | This file, driven by a bare self-paced `/loop`. Widens when the PRs are quiet, tightens when they are active. | No — dies with the session | **The reliable path while a session is open.** |
+| **2. Durable trigger** | A Desktop scheduled task (local, 1-minute floor) or, for repo-side checks, GitHub Actions. | **Yes** | **What actually makes tending survive the session** — which the cron never did. |
+| **3. The `*/1` cron** | The `CronCreate` scheduled at PR creation, running `/review-pr --auto`. | No | **Redundant backstop only.** Best-effort. Do not present it as the mechanism. |
+
+**Why tier 3 is demoted, stated plainly:** session crons fire only while the
+REPL is idle — precisely when a busy agent least needs them and most often has
+comments waiting. They are session-only with nothing written to disk, so they
+vanish when the session ends. And the toolbox stops one earlier still: the age
+check in `/review-pr` Step 0.5 self-terminates the cron 1 day after it was
+created, which leaves CronCreate's 7-day runtime cap as an outer backstop only —
+it covers legacy crons created before that age check existed, and is never a
+lifetime to plan around. And `durable: true` is a documented no-op: the live
+schema says so outright, so a cron cannot be made to survive by asking it to.
+
+**Cloud Routines are the WRONG tier-2 choice.** No access to local files (so
+they cannot read this loop body) and a 1-hour floor. Use a local Desktop
+scheduled task for local work, or GitHub Actions for anything that only needs
+the repo.
+
+### Which tier is authoritative
+
+**None of them, in the end — the agent running `/review-pr` inline when it
+returns to a PR is the reliable path, regardless of which tier fired.** That is
+what has actually been working. The tiers exist to make sure *something* brings
+the agent back to the PR; the inline run is what does the work once it is there.
+So: run `/review-pr` at PR creation, whenever you return to a PR you authored,
+and once more before ending a session that has open PRs. Never assume a tier
+did it for you.
+
+<!--
+  CROSS-FILE STATE — every claim here was checked against the file as it stands,
+  because the two earlier revisions of this comment went stale as soon as the
+  files they described were edited:
+  - `rules/git-workflow.md` ("Auto-Poll After PR Creation") and
+    `skills/pr-automation/SKILL.md` ("Why the cron is best-effort" + "Cadence and
+    self-termination detail") both state the operative lifetime as the toolbox's
+    1-day self-termination with CronCreate's 7-day runtime cap as the outer
+    backstop, both call `durable: true` a documented no-op, and both point at
+    these three tiers.
+  - `commands/review-pr.md` no longer sells the `*/1` cron as the mechanism: its
+    Step 0.5 implements the 1-day cap, treats the 7-day cap as the outer backstop
+    for legacy crons only, and states outright that the cron starves during
+    active work. An earlier version of this comment named it as the one
+    uncorrected file; that is no longer true, so the claim is removed rather than
+    carried forward. (It does not discuss `durable: true` at all — do not claim
+    it does.)
+  This section and `docs/how-to/project-config.md` stay the canonical description
+  of the tiers themselves.
+-->

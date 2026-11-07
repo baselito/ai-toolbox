@@ -1,0 +1,35 @@
+{
+  "name": "ai-engineering",
+  "version": "1.0.0",
+  "description": "AI Engineering toolbox \u2014 curated agents, skills, commands, rules, and MCP configurations for fully orchestrated agentic development workflows.",
+  "author": "baselito",
+  "repository": "https://github.com/baselito/ai-toolbox",
+  "components": {
+    "agents": 20,
+    "skills": 30,
+    "commands": 20,
+    "rules": 15,
+    "mcp_configs": 2
+  },
+  "dependencies": {
+    "plugins": [
+      "affaan-m/everything-claude-code"
+    ],
+    "mcps": [
+      "context7"
+    ]
+  },
+  "supported_tools": [
+    "claude-code",
+    "codex-cli"
+  ],
+  "stack": [
+    "next.js",
+    "nestjs",
+    "typescript",
+    "csharp",
+    "blazor",
+    "radzen",
+    "github-actions"
+  ]
+}
